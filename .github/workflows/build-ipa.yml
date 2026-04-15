@@ -6,67 +6,76 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-ipa:
-    name: Build IPA (unsigned - ready for GBox)
+  build-ios:
+    name: Build iOS IPA (React Native - GBox ready)
     runs-on: macos-latest
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          xcode-version: latest-stable
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package.json
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Show Xcode version
+        run: xcodebuild -version
 
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate --spec project.yml
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm install
+
+      - name: Install xcpretty
+        run: gem install xcpretty --no-document
+
+      - name: Run Expo Prebuild (generates iOS Xcode project)
+        working-directory: mobile
+        run: npx expo prebuild --clean --platform ios
+
+      - name: Install CocoaPods
+        working-directory: mobile/ios
+        run: pod install
 
       - name: Build Archive (unsigned)
-        working-directory: ios
+        working-directory: mobile/ios
         run: |
+          set -o pipefail
           xcodebuild \
-            -project JMHStream.xcodeproj \
+            -workspace JMHStream.xcworkspace \
             -scheme JMHStream \
             -configuration Release \
             -sdk iphoneos \
-            -archivePath "${{ github.workspace }}/build/JMHStream.xcarchive" \
+            -archivePath $(pwd)/build/JMHStream.xcarchive \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
             archive | xcpretty
 
-      - name: Package IPA (unsigned - for GBox signing)
+      - name: Package unsigned IPA (for GBox)
+        working-directory: mobile/ios
         run: |
           mkdir -p build/Payload
-          APP_PATH=$(find build/JMHStream.xcarchive/Products/Applications -name "*.app" | head -1)
-          echo "App found at: $APP_PATH"
-          cp -r "$APP_PATH" build/Payload/
+          APP=$(find build/JMHStream.xcarchive/Products/Applications -name "*.app" | head -1)
+          echo "App: $APP"
+          cp -r "$APP" build/Payload/
           cd build
-          zip -r "JMHStream-unsigned.ipa" Payload/
-          echo "IPA created: $(du -sh JMHStream-unsigned.ipa)"
+          zip -r JMHStream-unsigned.ipa Payload/
+          echo "IPA size: $(du -sh JMHStream-unsigned.ipa)"
 
-      - name: Upload IPA artifact
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: JMHStream-IPA
-          path: build/JMHStream-unsigned.ipa
+          name: JMHStream-RN-IPA
+          path: mobile/ios/build/JMHStream-unsigned.ipa
           retention-days: 30
 
-      - name: Show build info
+      - name: Build summary
         run: |
-          echo "==============================="
-          echo "  BUILD COMPLETED SUCCESSFULLY "
-          echo "==============================="
-          echo ""
-          echo "IPA File: JMHStream-unsigned.ipa"
-          echo "How to install:"
-          echo "1. Download JMHStream-unsigned.ipa from artifacts"
-          echo "2. Import into GBox on your iPhone"
-          echo "3. GBox will sign and install it"
-          echo "==============================="
+          echo "## Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "React Native IPA built successfully." >> $GITHUB_STEP_SUMMARY
+          echo "Download from Artifacts and import into GBox to install on iPhone." >> $GITHUB_STEP_SUMMARY
