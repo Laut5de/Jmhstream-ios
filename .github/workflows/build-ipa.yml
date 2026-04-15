@@ -46,19 +46,18 @@ jobs:
             --bundle-output /tmp/rn-bundle/main.jsbundle \
             --assets-dest /tmp/rn-bundle/assets
           echo "Bundle: $(du -sh /tmp/rn-bundle/main.jsbundle)"
-          echo "Assets: $(ls /tmp/rn-bundle/assets | wc -l) files"
 
       - name: Install CocoaPods
         working-directory: mobile/ios
         run: pod install
 
-      - name: Build Archive (SKIP bundle phase)
+      - name: Archive app (unsigned)
         working-directory: mobile/ios
         env:
           SKIP_BUNDLING: 1
         run: |
           set -o pipefail
-          xcodebuild \
+          xcodebuild archive \
             -workspace JMHStream.xcworkspace \
             -scheme JMHStream \
             -configuration Release \
@@ -69,20 +68,16 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
             2>&1 | tee build-output.txt || (tail -100 build-output.txt && exit 1)
+          echo '=== Archive created ==='
+          ls -la build/JMHStream.xcarchive/
+          find build/JMHStream.xcarchive -name '*.app' -type d
 
-      - name: Inject bundle + package IPA
+      - name: Package IPA from archive
         working-directory: mobile/ios
         run: |
-          echo '=== Archive structure ==='
-          find build/JMHStream.xcarchive -type d | head -20
-          echo ''
-          echo '=== Finding .app ==='
-          APP=$(find build/ -name '*.app' -type d | head -1)
-          echo "App found: $APP"
-          if [ -z "$APP" ]; then
-            echo 'ERROR: No .app found in archive!'
-            exit 1
-          fi
+          APP=$(find build/JMHStream.xcarchive -name '*.app' -type d | head -1)
+          echo "App: $APP"
+          if [ -z "$APP" ]; then echo 'ERROR: No .app' && exit 1; fi
           cp /tmp/rn-bundle/main.jsbundle "$APP/main.jsbundle"
           mkdir -p "$APP/assets"
           rsync -a /tmp/rn-bundle/assets/ "$APP/assets/" 2>/dev/null || true
