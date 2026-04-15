@@ -37,16 +37,16 @@ jobs:
 
       - name: Bundle JS manually
         working-directory: mobile
-        run: >-
-          mkdir -p /tmp/rn-bundle/assets &&
-          node node_modules/.bin/react-native bundle
-          --platform ios
-          --dev false
-          --entry-file index.js
-          --bundle-output /tmp/rn-bundle/main.jsbundle
-          --assets-dest /tmp/rn-bundle/assets
-          --reset-cache &&
-          echo "Bundle OK: $(du -sh /tmp/rn-bundle/main.jsbundle)"
+        run: |
+          mkdir -p /tmp/rn-bundle/assets
+          node node_modules/.bin/react-native bundle \
+            --platform ios \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output /tmp/rn-bundle/main.jsbundle \
+            --assets-dest /tmp/rn-bundle/assets
+          echo "Bundle: $(du -sh /tmp/rn-bundle/main.jsbundle)"
+          echo "Assets: $(ls /tmp/rn-bundle/assets | wc -l) files"
 
       - name: Install CocoaPods
         working-directory: mobile/ios
@@ -73,7 +73,16 @@ jobs:
       - name: Inject bundle + package IPA
         working-directory: mobile/ios
         run: |
-          APP=$(find build/JMHStream.xcarchive/Products/Applications -name '*.app' | head -1)
+          echo '=== Archive structure ==='
+          find build/JMHStream.xcarchive -type d | head -20
+          echo ''
+          echo '=== Finding .app ==='
+          APP=$(find build/ -name '*.app' -type d | head -1)
+          echo "App found: $APP"
+          if [ -z "$APP" ]; then
+            echo 'ERROR: No .app found in archive!'
+            exit 1
+          fi
           cp /tmp/rn-bundle/main.jsbundle "$APP/main.jsbundle"
           mkdir -p "$APP/assets"
           rsync -a /tmp/rn-bundle/assets/ "$APP/assets/" 2>/dev/null || true
