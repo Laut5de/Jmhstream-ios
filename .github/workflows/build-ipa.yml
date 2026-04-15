@@ -22,12 +22,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: mobile/package.json
 
-      - name: Show versions
-        run: |
-          xcodebuild -version
-          node --version
-          which node
-
       - name: Install dependencies
         working-directory: mobile
         run: npm install
@@ -42,11 +36,22 @@ jobs:
         working-directory: mobile/ios
         run: pod install
 
+      - name: Pre-bundle JavaScript (avoid Xcode node PATH issue)
+        working-directory: mobile
+        run: |
+          mkdir -p ios/main.jsbundle ios/assets
+          node node_modules/.bin/react-native bundle \
+            --platform ios \
+            --dev false \
+            --entry-file node_modules/expo-router/entry \
+            --bundle-output ios/main.jsbundle \
+            --assets-dest ios/assets
+
       - name: Build Archive (unsigned)
         working-directory: mobile/ios
         run: |
-          NODE_BIN=$(which node)
-          echo "Node: $NODE_BIN"
+          export NODE_BINARY=$(which node)
+          echo "Node: $NODE_BINARY"
           set -o pipefail
           xcodebuild \
             -workspace JMHStream.xcworkspace \
@@ -58,18 +63,18 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
-            NODE_BINARY="$NODE_BIN" \
-            2>&1 | tee build-output.txt || (echo '=== LAST 150 LINES ===' && tail -150 build-output.txt && exit 1)
+            SKIP_BUNDLING=YES \
+            2>&1 | tee build-output.txt || (echo '=== LAST 200 LINES ===' && tail -200 build-output.txt && exit 1)
 
       - name: Package unsigned IPA
         working-directory: mobile/ios
         run: |
           mkdir -p build/Payload
           APP=$(find build/JMHStream.xcarchive/Products/Applications -name '*.app' | head -1)
-          echo "Packaging: $APP"
+          echo "App: $APP"
           cp -r "$APP" build/Payload/
           cd build && zip -r JMHStream-unsigned.ipa Payload/
-          echo "IPA: $(du -sh JMHStream-unsigned.ipa)"
+          echo "IPA size: $(du -sh JMHStream-unsigned.ipa)"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
@@ -79,4 +84,4 @@ jobs:
           retention-days: 30
 
       - name: Summary
-        run: echo '## IPA Built' >> $GITHUB_STEP_SUMMARY
+        run: echo '## JMHStream IPA ready for GBox!' >> $GITHUB_STEP_SUMMARY
