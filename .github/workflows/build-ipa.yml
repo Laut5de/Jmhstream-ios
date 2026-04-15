@@ -26,14 +26,13 @@ name: Build JMHStream IPA
           run: |
             xcodebuild -version
             node --version
-            npm --version
             which node
 
         - name: Install dependencies
           working-directory: mobile
           run: npm install
 
-        - name: Run Expo Prebuild (generates iOS Xcode project)
+        - name: Run Expo Prebuild
           working-directory: mobile
           run: npx expo prebuild --clean --platform ios
           env:
@@ -47,46 +46,40 @@ name: Build JMHStream IPA
           working-directory: mobile/ios
           run: |
             NODE_BIN=$(which node)
-            echo "Using node: $NODE_BIN"
+            echo "Node: $NODE_BIN"
+            set -o pipefail
             xcodebuild \
               -workspace JMHStream.xcworkspace \
               -scheme JMHStream \
               -configuration Release \
               -sdk iphoneos \
-              -archivePath $(pwd)/build/JMHStream.xcarchive \
+              -archivePath $PWD/build/JMHStream.xcarchive \
               CODE_SIGN_IDENTITY="" \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGNING_ALLOWED=NO \
               ENABLE_BITCODE=NO \
               NODE_BINARY="$NODE_BIN" \
-              2>&1 | tee build-output.txt; BUILD_EXIT=${PIPESTATUS[0]}
-            if [ $BUILD_EXIT -ne 0 ]; then
-              echo "=== BUILD FAILED — last 100 lines ==="
-              tail -100 build-output.txt
-              exit $BUILD_EXIT
-            fi
+              2>&1 | tee build-output.txt || (echo "=== LAST 150 LINES ===" && tail -150 build-output.txt && exit 1)
 
-        - name: Package unsigned IPA (for GBox)
+        - name: Package unsigned IPA
           working-directory: mobile/ios
           run: |
             mkdir -p build/Payload
             APP=$(find build/JMHStream.xcarchive/Products/Applications -name "*.app" | head -1)
-            echo "App: $APP"
+            echo "Packaging: $APP"
             cp -r "$APP" build/Payload/
-            cd build
-            zip -r JMHStream-unsigned.ipa Payload/
-            echo "IPA size: $(du -sh JMHStream-unsigned.ipa)"
+            cd build && zip -r JMHStream-unsigned.ipa Payload/
+            echo "IPA: $(du -sh JMHStream-unsigned.ipa)"
 
-        - name: Upload IPA
+        - name: Upload IPA artifact
           uses: actions/upload-artifact@v4
           with:
             name: JMHStream-RN-IPA
             path: mobile/ios/build/JMHStream-unsigned.ipa
             retention-days: 30
 
-        - name: Build summary
+        - name: Summary
           run: |
-            echo "## Build Complete" >> $GITHUB_STEP_SUMMARY
-            echo "React Native IPA built successfully." >> $GITHUB_STEP_SUMMARY
-            echo "Download from Artifacts and import into GBox to install on iPhone." >> $GITHUB_STEP_SUMMARY
+            echo "## IPA Built Successfully" >> $GITHUB_STEP_SUMMARY
+            echo "Download from Artifacts tab and install with GBox." >> $GITHUB_STEP_SUMMARY
   
