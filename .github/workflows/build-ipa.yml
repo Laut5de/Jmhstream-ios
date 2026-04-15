@@ -26,33 +26,36 @@ jobs:
         working-directory: mobile
         run: npm install
 
-      - name: Verify metro config exists
-        working-directory: mobile
-        run: |
-          ls metro.config.js && echo 'metro.config.js OK' || echo 'MISSING metro.config.js'
-          cat package.json | grep main
-
       - name: Run Expo Prebuild
         working-directory: mobile
         run: npx expo prebuild --clean --platform ios
         env:
           CI: 1
 
-      - name: Write .xcode.env.local
-        working-directory: mobile/ios
+      - name: Bundle JavaScript manually (full output visible)
+        working-directory: mobile
         run: |
-          echo "NODE_BINARY=$(which node)" > .xcode.env.local
-          cat .xcode.env.local
+          echo '=== Bundling JS for iOS ==='
+          mkdir -p /tmp/rn-bundle/assets
+          node node_modules/.bin/react-native bundle \
+            --platform ios \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output /tmp/rn-bundle/main.jsbundle \
+            --assets-dest /tmp/rn-bundle/assets \
+            --reset-cache
+          echo "Bundle size: $(du -sh /tmp/rn-bundle/main.jsbundle)"
+          echo "Assets: $(ls /tmp/rn-bundle/assets | wc -l) files"
 
       - name: Install CocoaPods
         working-directory: mobile/ios
         run: pod install
 
-      - name: Build Archive (unsigned)
+      - name: Build Archive (native only, SKIP JS bundle phase)
         working-directory: mobile/ios
+        env:
+          SKIP_BUNDLING: 1
         run: |
-          export NODE_BINARY=$(which node)
-          echo "Node: $NODE_BINARY ($($NODE_BINARY --version))"
           set -o pipefail
           xcodebuild \
             -workspace JMHStream.xcworkspace \
@@ -64,14 +67,21 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
-            2>&1 | tee build-output.txt || (echo '--- TAIL 200 ---' && tail -200 build-output.txt && exit 1)
+            2>&1 | tee build-output.txt || (echo '--- TAIL ---' && tail -150 build-output.txt && exit 1)
 
-      - name: Package unsigned IPA
+      - name: Inject JS bundle + package IPA
         working-directory: mobile/ios
         run: |
-          mkdir -p build/Payload
           APP=$(find build/JMHStream.xcarchive/Products/Applications -name '*.app' | head -1)
           echo "App: $APP"
+          # Inject pre-built JS bundle
+          cp /tmp/rn-bundle/main.jsbundle "$APP/main.jsbundle"
+          # Copy assets
+          mkdir -p "$APP/assets"
+          rsync -a /tmp/rn-bundle/assets/ "$APP/assets/" 2>/dev/null || true
+          echo "Bundle injected: $(ls -lh $APP/main.jsbundle)"
+          # Package IPA
+          mkdir -p build/Payload
           cp -r "$APP" build/Payload/
           cd build && zip -r JMHStream-unsigned.ipa Payload/
           echo "IPA size: $(du -sh JMHStream-unsigned.ipa)"
@@ -84,4 +94,6 @@ jobs:
           retention-days: 30
 
       - name: Done
-        run: echo '## JMHStream IPA Ready for GBox!' >> $GITHUB_STEP_SUMMARY
+        run: |
+          echo '## JMHStream IPA Ready!' >> $GITHUB_STEP_SUMMARY
+          echo 'Download from Artifacts tab and install with GBox.' >> $GITHUB_STEP_SUMMARY
