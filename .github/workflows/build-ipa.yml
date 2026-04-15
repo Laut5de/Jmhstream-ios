@@ -26,19 +26,31 @@ jobs:
         working-directory: mobile
         run: npm install
 
-      - name: Symlink node to standard path
-        run: |
-          NODE_PATH=$(which node)
-          echo "Node at: $NODE_PATH"
-          sudo ln -sf "$NODE_PATH" /usr/local/bin/node
-          ls -la /usr/local/bin/node
-          node --version
-
       - name: Run Expo Prebuild
         working-directory: mobile
         run: npx expo prebuild --clean --platform ios
         env:
           CI: 1
+
+      - name: Write .xcode.env.local (official Expo node fix)
+        working-directory: mobile/ios
+        run: |
+          echo "NODE_BINARY=$(which node)" > .xcode.env.local
+          echo "Written:"
+          cat .xcode.env.local
+
+      - name: Test bundle manually (diagnose errors)
+        working-directory: mobile
+        run: |
+          mkdir -p /tmp/rn-assets
+          node node_modules/.bin/react-native bundle \
+            --platform ios \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output /tmp/main.jsbundle \
+            --assets-dest /tmp/rn-assets 2>&1
+          echo "Bundle exit: $?"
+          ls -lh /tmp/main.jsbundle || echo 'Bundle file not created'
 
       - name: Install CocoaPods
         working-directory: mobile/ios
@@ -46,12 +58,7 @@ jobs:
 
       - name: Build Archive (unsigned)
         working-directory: mobile/ios
-        env:
-          NODE_BINARY: /usr/local/bin/node
         run: |
-          export NODE_BINARY=/usr/local/bin/node
-          echo "Using node: $NODE_BINARY"
-          $NODE_BINARY --version
           set -o pipefail
           xcodebuild \
             -workspace JMHStream.xcworkspace \
@@ -63,7 +70,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
-            2>&1 | tee build-output.txt || (echo '=== LAST 200 LINES ===' && tail -200 build-output.txt && exit 1)
+            2>&1 | tee build-output.txt || (echo '--- LAST 200 LINES ---' && tail -200 build-output.txt && exit 1)
 
       - name: Package unsigned IPA
         working-directory: mobile/ios
