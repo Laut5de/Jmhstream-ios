@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-ios:
-    name: Build iOS IPA (React Native - GBox ready)
+    name: Build iOS IPA (React Native - GBox)
     runs-on: macos-latest
     timeout-minutes: 90
 
@@ -26,6 +26,14 @@ jobs:
         working-directory: mobile
         run: npm install
 
+      - name: Symlink node to standard path
+        run: |
+          NODE_PATH=$(which node)
+          echo "Node at: $NODE_PATH"
+          sudo ln -sf "$NODE_PATH" /usr/local/bin/node
+          ls -la /usr/local/bin/node
+          node --version
+
       - name: Run Expo Prebuild
         working-directory: mobile
         run: npx expo prebuild --clean --platform ios
@@ -36,22 +44,14 @@ jobs:
         working-directory: mobile/ios
         run: pod install
 
-      - name: Pre-bundle JavaScript (avoid Xcode node PATH issue)
-        working-directory: mobile
-        run: |
-          mkdir -p ios/main.jsbundle ios/assets
-          node node_modules/.bin/react-native bundle \
-            --platform ios \
-            --dev false \
-            --entry-file node_modules/expo-router/entry \
-            --bundle-output ios/main.jsbundle \
-            --assets-dest ios/assets
-
       - name: Build Archive (unsigned)
         working-directory: mobile/ios
+        env:
+          NODE_BINARY: /usr/local/bin/node
         run: |
-          export NODE_BINARY=$(which node)
-          echo "Node: $NODE_BINARY"
+          export NODE_BINARY=/usr/local/bin/node
+          echo "Using node: $NODE_BINARY"
+          $NODE_BINARY --version
           set -o pipefail
           xcodebuild \
             -workspace JMHStream.xcworkspace \
@@ -63,7 +63,6 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
-            SKIP_BUNDLING=YES \
             2>&1 | tee build-output.txt || (echo '=== LAST 200 LINES ===' && tail -200 build-output.txt && exit 1)
 
       - name: Package unsigned IPA
@@ -83,5 +82,5 @@ jobs:
           path: mobile/ios/build/JMHStream-unsigned.ipa
           retention-days: 30
 
-      - name: Summary
-        run: echo '## JMHStream IPA ready for GBox!' >> $GITHUB_STEP_SUMMARY
+      - name: Done
+        run: echo '## JMHStream IPA Ready!' >> $GITHUB_STEP_SUMMARY
